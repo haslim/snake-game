@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Snake</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1>Snake</h1>
+    <div class="scores">
+      <span>Score <b id="score">0</b></span>
+      <span>Best <b id="best">0</b></span>
+    </div>
+  </header>
+  <canvas id="game" width="480" height="480"></canvas>
+  <p id="status" class="status"></p>
+  <div class="controls">
+    <button id="restart">Restart (R)</button>
+    <label class="toggle"><input type="checkbox" id="wrap" checked> Wrap walls</label>
+  </div>
+  <footer>Arrow keys / WASD &middot; Space pause &middot; R restart</footer>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
