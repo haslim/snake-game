@@ -310,6 +310,7 @@ function loop(ts) {
 }
 
 window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (k === ' ') {
     if (state === 'running') state = 'paused';
