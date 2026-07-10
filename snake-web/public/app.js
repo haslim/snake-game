@@ -8,6 +8,15 @@ const bestEl = document.getElementById('best');
 const statusEl = document.getElementById('status');
 const wrapToggle = document.getElementById('wrap');
 
+// Overlay Elements
+const overlayEl = document.getElementById('game-overlay');
+const gameOverScreen = document.getElementById('game-over-screen');
+const leaderboardScreen = document.getElementById('leaderboard-screen');
+const finalScoreEl = document.getElementById('final-score');
+const scoreForm = document.getElementById('score-form');
+const playerNameInput = document.getElementById('player-name');
+const leaderboardBody = document.getElementById('leaderboard-body');
+
 const DIRS = {
   ArrowUp: { x: 0, y: -1 }, ArrowDown: { x: 0, y: 1 },
   ArrowLeft: { x: -1, y: 0 }, ArrowRight: { x: 1, y: 0 },
@@ -19,9 +28,15 @@ let snake, dir, nextDir, food, score, speed, acc, state;
 let best = +(localStorage.getItem('snakeBest') || 0);
 bestEl.textContent = best;
 
+// Remember last entered player name
+if (localStorage.getItem('playerName')) {
+  playerNameInput.value = localStorage.getItem('playerName');
+}
+
 function resize() {
-  const max = Math.min(window.innerWidth - 52, window.innerHeight - 220, 560);
-  cell = Math.max(10, Math.floor(max / COLS));
+  const container = canvas.parentElement;
+  const size = Math.min(container.clientWidth, 480);
+  cell = Math.floor(size / COLS);
   canvas.width = cell * COLS;
   canvas.height = cell * ROWS;
 }
@@ -37,6 +52,7 @@ function reset() {
   state = 'running';
   placeFood();
   updateHud();
+  hideOverlay();
 }
 
 function placeFood() {
@@ -67,12 +83,12 @@ function step() {
     head.x = (head.x + COLS) % COLS;
     head.y = (head.y + ROWS) % ROWS;
   } else if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) {
-    state = 'over';
+    handleGameOver();
     return;
   }
 
   if (snake.slice(1).some(s => s.x === head.x && s.y === head.y)) {
-    state = 'over';
+    handleGameOver();
     return;
   }
 
@@ -80,14 +96,109 @@ function step() {
 
   if (food && head.x === food.x && head.y === food.y) {
     score++;
-    if (score % 5 === 0) speed = Math.max(60, speed - 8);
+    if (score % 5 === 0) speed = Math.max(50, speed - 8);
     placeFood();
-    if (!food) state = 'win';
+    if (!food) {
+      state = 'win';
+      handleGameOver();
+    }
   } else {
     snake.pop();
   }
   updateHud();
 }
+
+function handleGameOver() {
+  state = state === 'win' ? 'win' : 'over';
+  finalScoreEl.textContent = score;
+  showOverlay('gameover');
+}
+
+// Overlay Screens management
+function showOverlay(screenType) {
+  overlayEl.classList.add('active');
+  if (screenType === 'gameover') {
+    gameOverScreen.classList.add('active');
+    leaderboardScreen.classList.remove('active');
+  } else if (screenType === 'leaderboard') {
+    gameOverScreen.classList.remove('active');
+    leaderboardScreen.classList.add('active');
+    loadLeaderboard();
+  }
+}
+
+function hideOverlay() {
+  overlayEl.classList.remove('active');
+  gameOverScreen.classList.remove('active');
+  leaderboardScreen.classList.remove('active');
+}
+
+async function loadLeaderboard() {
+  try {
+    leaderboardBody.innerHTML = '<tr><td colspan="3" style="text-align:center;">Loading...</td></tr>';
+    const res = await fetch('/api/scores');
+    const scores = await res.json();
+    leaderboardBody.innerHTML = '';
+    
+    if (scores.length === 0) {
+      leaderboardBody.innerHTML = '<tr><td colspan="3" style="text-align:center; color: var(--text-secondary);">No scores yet. Be the first!</td></tr>';
+      return;
+    }
+    
+    scores.forEach((entry, index) => {
+      const tr = document.createElement('tr');
+      const rank = index + 1;
+      let rankBadge = `<span class="rank-badge rank-other">${rank}</span>`;
+      if (rank === 1) rankBadge = `<span class="rank-badge rank-1">🥇</span>`;
+      else if (rank === 2) rankBadge = `<span class="rank-badge rank-2">🥈</span>`;
+      else if (rank === 3) rankBadge = `<span class="rank-badge rank-3">🥉</span>`;
+      
+      tr.innerHTML = `
+        <td>${rankBadge}</td>
+        <td style="font-weight: 500;">${escapeHtml(entry.name)}</td>
+        <td style="font-weight: bold; color: var(--accent-cyan); font-variant-numeric: tabular-nums;">${entry.score}</td>
+      `;
+      leaderboardBody.appendChild(tr);
+    });
+  } catch (err) {
+    console.error(err);
+    leaderboardBody.innerHTML = '<tr><td colspan="3" style="text-align:center; color: var(--food-color);">Failed to load leaderboard.</td></tr>';
+  }
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Submit score
+scoreForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = playerNameInput.value.trim();
+  if (!name) return;
+  
+  localStorage.setItem('playerName', name);
+  
+  try {
+    const btn = scoreForm.querySelector('button');
+    btn.disabled = true;
+    btn.textContent = 'Submitting...';
+    
+    await fetch('/api/scores', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, score })
+    });
+    
+    btn.disabled = false;
+    btn.textContent = 'Submit Score';
+    
+    // Smooth transition to leaderboard
+    showOverlay('leaderboard');
+  } catch (err) {
+    console.error(err);
+    alert('Error submitting score, please try again.');
+  }
+});
 
 function roundRect(x, y, w, h, r) {
   ctx.beginPath();
@@ -100,10 +211,12 @@ function roundRect(x, y, w, h, r) {
 }
 
 function draw() {
-  ctx.fillStyle = '#0a0e14';
+  // BG
+  ctx.fillStyle = '#06080c';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  // Subtle grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.015)';
   ctx.lineWidth = 1;
   for (let i = 0; i <= COLS; i++) {
     ctx.beginPath();
@@ -118,22 +231,64 @@ function draw() {
     ctx.stroke();
   }
 
+  // Draw Food with glow
   if (food) {
-    ctx.fillStyle = '#ff5470';
-    roundRect(food.x * cell + 2, food.y * cell + 2, cell - 4, cell - 4, cell * 0.25);
+    ctx.save();
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = '#ff3366';
+    ctx.fillStyle = '#ff3366';
+    
+    // Pulsing size effect
+    const pulse = 1 + Math.sin(Date.now() * 0.01) * 0.1;
+    const r = (cell - 4) / 2 * pulse;
+    const cx = food.x * cell + cell / 2;
+    const cy = food.y * cell + cell / 2;
+    
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
   }
 
+  // Draw Snake with gradient and glow
   snake.forEach((s, i) => {
-    const t = i / snake.length;
-    ctx.fillStyle = i === 0 ? '#7afcff' : `rgba(106,255,170,${0.95 - t * 0.5})`;
-    roundRect(s.x * cell + 1, s.y * cell + 1, cell - 2, cell - 2, cell * 0.25);
-    ctx.fill();
+    ctx.save();
+    if (i === 0) {
+      // Head
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = '#00f2fe';
+      ctx.fillStyle = '#00f2fe';
+      roundRect(s.x * cell + 1.5, s.y * cell + 1.5, cell - 3, cell - 3, cell * 0.35);
+      ctx.fill();
+      
+      // Eyes based on direction
+      ctx.fillStyle = '#06080c';
+      const eyeSize = cell * 0.15;
+      const offset = cell * 0.25;
+      
+      if (dir.x !== 0) { // Moving Left/Right
+        const eyeX = s.x * cell + (dir.x > 0 ? cell - offset - eyeSize : offset);
+        ctx.fillRect(eyeX, s.y * cell + offset, eyeSize, eyeSize);
+        ctx.fillRect(eyeX, s.y * cell + cell - offset - eyeSize, eyeSize, eyeSize);
+      } else { // Moving Up/Down
+        const eyeY = s.y * cell + (dir.y > 0 ? cell - offset - eyeSize : offset);
+        ctx.fillRect(s.x * cell + offset, eyeY, eyeSize, eyeSize);
+        ctx.fillRect(s.x * cell + cell - offset - eyeSize, eyeY, eyeSize, eyeSize);
+      }
+    } else {
+      // Body
+      const t = i / snake.length;
+      ctx.fillStyle = `rgba(56, 239, 125, ${0.95 - t * 0.6})`;
+      roundRect(s.x * cell + 2, s.y * cell + 2, cell - 4, cell - 4, cell * 0.25);
+      ctx.fill();
+    }
+    ctx.restore();
   });
 
-  if (state === 'over') statusEl.textContent = '💀 Game Over — press R / tap to restart';
-  else if (state === 'win') statusEl.textContent = '🎉 You Win! — press R';
-  else if (state === 'paused') statusEl.textContent = '⏸ Paused — Space to resume';
+  // UI state notification text on the header
+  if (state === 'over') statusEl.textContent = '💀 Game Over';
+  else if (state === 'win') statusEl.textContent = '🎉 You Win!';
+  else if (state === 'paused') statusEl.textContent = '⏸ Paused';
   else statusEl.textContent = '';
 }
 
@@ -193,6 +348,19 @@ canvas.addEventListener('touchend', (e) => {
 }, { passive: true });
 
 document.getElementById('restart').addEventListener('click', reset);
+document.getElementById('overlay-restart').addEventListener('click', reset);
+document.getElementById('show-leaderboard-btn').addEventListener('click', () => {
+  if (state === 'running') state = 'paused';
+  showOverlay('leaderboard');
+});
+document.getElementById('leaderboard-close').addEventListener('click', () => {
+  hideOverlay();
+  if (state === 'paused') state = 'running';
+});
+
+resize();
+reset();
+requestAnimationFrame(loop);
 
 resize();
 reset();
